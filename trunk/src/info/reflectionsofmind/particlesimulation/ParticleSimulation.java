@@ -8,23 +8,20 @@ interface AttractionFunction
 	double evaluate(Particle p1, Particle p2);
 }
 
-interface SlowdownFunction
-{
-	double evaluate(double speed, double dt);
-}
-
 public class ParticleSimulation
 {
 	private final Map<Object, Particle> particles = new HashMap<Object, Particle>();
-	private final Map<Object, Force> forces = new HashMap<Object, Force>();
-	private final boolean paused = true;
-	private final AttractionFunction af;
-	private final SlowdownFunction sf;
+	private final Map<Object, Vector> forces = new HashMap<Object, Vector>();
 
-	public ParticleSimulation(AttractionFunction af, SlowdownFunction sf)
+	private Thread simulationThread = null;
+
+	private final AttractionFunction attractionFunction;
+	private final SlowdownFunction slowdownFunction;
+
+	public ParticleSimulation(final AttractionFunction af, final SlowdownFunction sf)
 	{
-		this.af = af;
-		this.sf = sf;
+		this.attractionFunction = af;
+		this.slowdownFunction = sf;
 	}
 
 	public void add(final Object object, final double x, final double y, final double m)
@@ -32,48 +29,131 @@ public class ParticleSimulation
 		this.particles.put(object, new Particle(new Vector(x, y), m));
 	}
 
-	public void pause()
+	public synchronized void pause()
 	{
-
-	}
-
-	public void start()
-	{
-
-	}
-
-	public void step(final double dt)
-	{
-		// slowdown
-
-		for (Object object : particles.keySet())
+		if (simulationThread == null)
 		{
-			final Particle particle = particles.get(object);
-			particle.s.scale(this.sf.evaluate(particle.s.len(), dt));
+			throw new RuntimeException("Simulation already paused!");
 		}
+	}
 
-		// calculate forces
-
-		this.forces.clear();
-
-		for (Object o1 : particles.keySet())
+	public synchronized void start()
+	{
+		if (simulationThread != null)
 		{
-			final Particle p1 = particles.get(o1);
-			Vector force = new Vector(0.0, 0.0);
+			throw new RuntimeException("Simulation already running!");
+		}
+		
+		this.simulationThread = new SimulationThread();
+		
+		this.simulationThread.start();
+	}
 
-			for (Object o2 : particles.keySet())
+	public synchronized void step(final double dt)
+	{
+		if (simulationThread != null)
+		{
+			throw new RuntimeException("Simulation already running!");
+		}
+		
+		slowdownSpeeds(dt);
+		calculateForces();
+		applyForces(dt);
+	}
+
+	private void applyForces(final double dt)
+    {
+	    for (final Object object : this.particles.keySet())
+		{
+			final Particle particle = this.particles.get(object);
+			final Vector oldSpeed = particle.getSpeed();
+			final Vector newSpeed = oldSpeed.add(this.forces.get(object).scale(dt / particle.getMass()));
+			particle.setSpeed(newSpeed);
+		}
+    }
+
+	private void calculateForces()
+    {
+	    this.forces.clear();
+
+		for (final Object object : this.particles.keySet())
+		{
+			final Particle particle = this.particles.get(object);
+			Vector totalForce = new Vector(0.0, 0.0);
+
+			for (final Object otherObject : this.particles.keySet())
 			{
-				if (o2 != o1)
+				if (otherObject != object)
 				{
-					final Particle p2 = particles.get(o2);
-					final double attraction = this.af.evaluate(p1, p2);
-					final Vector f = new Vector(p1.p.sub(p2.p).scale(attraction));
-					force = force.add(f);
+					final Particle otherParticle = this.particles.get(otherObject);
+					final double attraction = this.attractionFunction.evaluate(particle, otherParticle);
+					final Vector positionDifference = particle.position.subtract(otherParticle.position);
+					final Vector force = positionDifference.setLength(attraction);
+					totalForce = totalForce.add(force);
 				}
 			}
 
-			particle.s.scale(this.sf.evaluate(particle.s.len(), dt));
+			this.forces.put(object, totalForce);
 		}
+    }
 
+	private void slowdownSpeeds(final double dt)
+    {
+	    for (final Object object : this.particles.keySet())
+		{
+			final Particle particle = this.particles.get(object);
+			final Vector oldSpeed = particle.getSpeed();
+			final double oldSpeedValue = oldSpeed.getLength();
+			final double newSpeedValue = this.slowdownFunction.evaluate(oldSpeedValue, dt);
+			final Vector newSpeed = oldSpeed.setLength(newSpeedValue);
+			particle.setSpeed(newSpeed);
+		}
+    }
+	
+	private class SimulationThread extends Thread
+	{
+		private boolean mustStop = false;
+		private final Object lock = new Object();
+		
+		@Override
+		public void run()
+		{
+			while (!mustStop)
+			{
+				ParticleSimulation.this.step(ParticleSimulation.this.getTimeStep());
+			}
+			
+			synchronized (lock)
+            {
+				lock.notify();
+            }
+		}
+		
+		public void requestStop()
+        {
+			synchronized (lock)
+            {
+				this.mustStop = true;
+				
+				try
+                {
+	                lock.wait();
+                }
+                catch (InterruptedException exception)
+                {
+	                throw new RuntimeException(exception);
+                }
+            }
+        }
 	}
+
+	public double getTimeStep()
+    {
+	    return 0.001;
+    }
+}
+
+interface SlowdownFunction
+{
+	double evaluate(double speedValue, double dt);
 }

@@ -11,29 +11,33 @@ public class Vector
 		this.y = y;
 	}
 
-	public Vector(Vector v)
-    {
+	public Vector(final Vector v)
+	{
 		this(v.x, v.y);
-    }
+	}
 
-	public double len()
+	public Vector add(final Vector force)
+	{
+		return new Vector(this.x + force.x, this.y + force.y);
+	}
+
+	public double getLength()
 	{
 		return Math.sqrt(this.x * this.x + this.y * this.y);
 	}
 
-	public Vector scale(double newLen)
+	public Vector scale(final double factor)
 	{
-		double oldLen = len();
-		return new Vector(this.x / oldLen * newLen, this.y / oldLen * newLen);
+		return new Vector(this.x * factor, this.y * factor);
 	}
-	
-	public Vector sub(Vector v)
+
+	public Vector setLength(final double newLen)
+	{
+		return scale(getLength() / newLen);
+	}
+
+	public Vector subtract(final Vector v)
 	{
 		return new Vector(this.x - v.x, this.y - v.y);
-	}
-	
-	public Vector add(Vector force)
-	{
-		return new Vector(this.x + force.x, this.y + force.y);
 	}
 }
